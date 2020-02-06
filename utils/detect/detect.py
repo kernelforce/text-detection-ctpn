@@ -4,8 +4,8 @@ import shutil
 import sys
 import time
 
-import cv2
 import numpy as np
+import cv2
 import tensorflow as tf
 
 sys.path.append(os.getcwd())
@@ -51,13 +51,12 @@ def resize_image(img):
     return re_im, (new_h / img_size[0], new_w / img_size[1])
 
 
-def main(argv=None):
-    if os.path.exists(FLAGS.output_path):
-        shutil.rmtree(FLAGS.output_path)
-    os.makedirs(FLAGS.output_path)
+def detect_image(image):
+
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
 
-    with tf.get_default_graph().as_default():
+    graph = tf.Graph()
+    with graph.as_default():
         input_image = tf.placeholder(tf.float32, shape=[None, None, None, 3], name='input_image')
         input_im_info = tf.placeholder(tf.float32, shape=[None, 3], name='input_im_info')
 
@@ -74,48 +73,47 @@ def main(argv=None):
             print('Restore from {}'.format(model_path))
             saver.restore(sess, model_path)
 
-            im_fn_list = get_images()
-            for im_fn in im_fn_list:
-                print('===============')
-                print(im_fn)
-                start = time.time()
-                try:
-                    im = cv2.imread(im_fn)[:, :, ::-1]
-                except:
-                    print("Error reading image {}!".format(im_fn))
-                    continue
+            print('===============')
+            start = time.time()
+            im = image[:, :, ::-1]
 
-                img, (rh, rw) = resize_image(im)
-                h, w, c = img.shape
-                im_info = np.array([h, w, c]).reshape([1, 3])
-                bbox_pred_val, cls_prob_val = sess.run([bbox_pred, cls_prob],
-                                                       feed_dict={input_image: [img],
-                                                                  input_im_info: im_info})
+            img, (rh, rw) = resize_image(im)
+            h, w, c = img.shape
+            im_info = np.array([h, w, c]).reshape([1, 3])
+            bbox_pred_val, cls_prob_val = sess.run([bbox_pred, cls_prob],
+                                                   feed_dict={input_image: [img],
+                                                              input_im_info: im_info})
 
-                textsegs, _ = proposal_layer(cls_prob_val, bbox_pred_val, im_info)
-                scores = textsegs[:, 0]
-                textsegs = textsegs[:, 1:5]
+            textsegs, _ = proposal_layer(cls_prob_val, bbox_pred_val, im_info)
+            scores = textsegs[:, 0]
+            textsegs = textsegs[:, 1:5]
 
-                textdetector = TextDetector(DETECT_MODE='O')
-                boxes = textdetector.detect(textsegs, scores[:, np.newaxis], img.shape[:2])
-                boxes = np.array(boxes, dtype=np.int)
+            textdetector = TextDetector(DETECT_MODE='O')
+            boxes = textdetector.detect(textsegs, scores[:, np.newaxis], img.shape[:2])
+            boxes = np.array(boxes, dtype=np.int)
 
-                cost_time = (time.time() - start)
-                print("cost time: {:.2f}s".format(cost_time))
+            cost_time = (time.time() - start)
+            print("cost time: {:.2f}s".format(cost_time))
 
-                for i, box in enumerate(boxes):
-                    cv2.polylines(img, [box[:8].astype(np.int32).reshape((-1, 1, 2))], True, color=(0, 255, 0),
-                                  thickness=1)
-                img = cv2.resize(img, None, None, fx=1.0 / rh, fy=1.0 / rw, interpolation=cv2.INTER_LINEAR)
-                cv2.imwrite(os.path.join(FLAGS.output_path, os.path.basename(im_fn)), img[:, :, ::-1])
+            for i, box in enumerate(boxes):
+                cv2.polylines(img, [box[:8].astype(np.int32).reshape((-1, 1, 2))], True, color=(0, 255, 0),
+                              thickness=1)
+            img = cv2.resize(img, None, None, fx=1.0 / rh, fy=1.0 / rw, interpolation=cv2.INTER_LINEAR)
 
-                with open(os.path.join(FLAGS.output_path, os.path.splitext(os.path.basename(im_fn))[0]) + ".txt",
-                          "w") as f:
-                    for i, box in enumerate(boxes):
-                        line = ",".join(str(box[k]) for k in range(8))
-                        line += "," + str(scores[i]) + "\r\n"
-                        f.writelines(line)
+            return img
 
 
-if __name__ == '__main__':
-    tf.app.run()
+if __name__ == "__main__":
+    if os.path.exists(FLAGS.output_path):
+        shutil.rmtree(FLAGS.output_path)
+    os.makedirs(FLAGS.output_path)
+    im_fn_list = get_images()
+    for im_fn in im_fn_list:
+        print('===============')
+        print(im_fn)
+        start = time.time()
+        im = cv2.imread(im_fn)[:, :, ::-1]
+        res = detect_image(im)
+        print("out:"+os.path.join(FLAGS.output_path, os.path.basename(im_fn)))
+        cv2.imwrite(os.path.join(FLAGS.output_path, os.path.basename(im_fn)), res)
+
